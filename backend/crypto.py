@@ -1,7 +1,7 @@
 import os
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import base64
 
 # Master key for encryption - in production, this should be from env or KMS
@@ -9,7 +9,7 @@ MASTER_KEY = os.environ.get('MASTER_ENCRYPTION_KEY', 'dev-master-key-32-bytes-lo
 
 # Derive a proper 256-bit key
 def get_encryption_key():
-    kdf = PBKDF2(
+    kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
         salt=b'dead-simple-infra-salt',  # In production, use random salt per secret
