@@ -103,6 +103,18 @@ class Metrics(BaseModel):
 async def root():
     return {"message": "Dead Simple Infrastructure Console API v1", "status": "online"}
 
+@api_router.get("/healthz")
+async def healthz():
+    """Health check endpoint - always returns 200 if service is up"""
+    return {"status": "ok"}
+
+@api_router.get("/readyz")
+async def readyz():
+    """Readiness check - fails if no agents connected"""
+    if len(active_agents) == 0:
+        raise HTTPException(status_code=503, detail="No agents connected")
+    return {"status": "ok", "agents_count": len(active_agents)}
+
 # Apps Management
 @api_router.post("/v1/apps", response_model=App)
 async def create_app(input: AppCreate):
