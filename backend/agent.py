@@ -31,11 +31,19 @@ AGENT_NAME = os.environ.get('AGENT_NAME', 'local-agent')
 WORK_DIR = Path('/tmp/dsi-agent-workspace')
 WORK_DIR.mkdir(exist_ok=True)
 
+# Retry configuration
+MAX_RETRIES = 3
+INITIAL_BACKOFF = 2  # seconds
+MAX_BACKOFF = 60  # seconds
+
 # Docker client
 docker_client = docker.from_env()
 
 # Track running containers
 running_containers = {}
+
+# Graceful shutdown flag
+shutdown_flag = False
 
 class Agent:
     def __init__(self):
