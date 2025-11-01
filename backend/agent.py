@@ -336,8 +336,35 @@ class Agent:
                 await asyncio.sleep(10)
 
 async def main():
+    global shutdown_flag
     agent = Agent()
-    await agent.connect()
+    
+    # Setup signal handlers for graceful shutdown
+    import signal
+    
+    def signal_handler(sig, frame):
+        global shutdown_flag
+        logger.info(f"Received signal {sig}, initiating graceful shutdown...")
+        shutdown_flag = True
+        agent.running = False
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    try:
+        await agent.connect_with_retry()
+    except KeyboardInterrupt:
+        logger.info("Agent interrupted by user")
+    finally:
+        # Wait for current build to finish
+        if agent.current_build:
+            logger.info(f"Waiting for current build {agent.current_build} to complete...")
+            timeout = 60  # Wait up to 60 seconds
+            start = asyncio.get_event_loop().time()
+            while agent.current_build and (asyncio.get_event_loop().time() - start) < timeout:
+                await asyncio.sleep(1)
+        
+        logger.info("Agent shutdown complete")
 
 if __name__ == '__main__':
     asyncio.run(main())
