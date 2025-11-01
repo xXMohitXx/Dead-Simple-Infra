@@ -253,25 +253,119 @@ async def add_secret(app_id: str, secret: SecretCreate):
     if not app:
         raise HTTPException(status_code=404, detail="App not found")
     
+    # Check if secret with this key already exists
+    existing = await db.secrets.find_one({"app_id": app_id, "key": secret.key}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=400, detail="Secret with this key already exists. Use rotate endpoint to update.")
+    
     # Encrypt the secret value
     encrypted_value = encrypt_secret(secret.value)
     
     secret_obj = Secret(
         app_id=app_id,
         key=secret.key,
-        encrypted_value=encrypted_value
+        encrypted_value=encrypted_value,
+        version=1
     )
     
     doc = secret_obj.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
+    doc['updated_at'] = doc['updated_at'].isoformat()
     
     await db.secrets.insert_one(doc)
-    return {"message": "Secret added successfully", "key": secret.key}
+    
+    # Audit log
+    await db.secrets_audit.insert_one({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "user": "mvp-single-user",
+        "action": "created",
+        "secret_name": secret.key,
+        "app_id": app_id,
+        "version": 1
+    })
+    
+    return {"message": "Secret added successfully", "key": secret.key, "version": 1}
+
+@api_router.post("/v1/apps/{app_id}/secrets/rotate")
+async def rotate_secret(app_id: str, rotation: SecretRotate):
+    from crypto import encrypt_secret
+    
+    # Find existing secret
+    existing = await db.secrets.find_one({"app_id": app_id, "key": rotation.key}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Secret not found")
+    
+    # Increment version
+    new_version = existing.get("version", 1) + 1
+    
+    # Encrypt new value
+    encrypted_value = encrypt_secret(rotation.value)
+    
+    # Update secret
+    await db.secrets.update_one(
+        {"app_id": app_id, "key": rotation.key},
+        {"$set": {
+            "encrypted_value": encrypted_value,
+            "version": new_version,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Audit log
+    await db.secrets_audit.insert_one({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "user": "mvp-single-user",
+        "action": "rotated",
+        "secret_name": rotation.key,
+        "app_id": app_id,
+        "version": new_version
+    })
+    
+    # Notify agent of secret rotation via WebSocket
+    if active_agents:
+        for agent_ws in active_agents.values():
+            try:
+                await agent_ws.send_json({
+                    "type": "secret_rotate",
+                    "app_id": app_id,
+                    "secret_key": rotation.key,
+                    "version": new_version
+                })
+            except Exception as e:
+                logger.error(f"Failed to notify agent of secret rotation: {e}")
+    
+    return {
+        "message": "Secret rotated successfully",
+        "key": rotation.key,
+        "version": new_version
+    }
 
 @api_router.get("/v1/apps/{app_id}/secrets")
 async def get_secrets(app_id: str):
     secrets = await db.secrets.find({"app_id": app_id}, {"_id": 0, "encrypted_value": 0}).to_list(100)
+    
+    # Convert datetime strings
+    for secret in secrets:
+        if isinstance(secret.get('created_at'), str):
+            secret['created_at'] = datetime.fromisoformat(secret['created_at'])
+        if isinstance(secret.get('updated_at'), str):
+            secret['updated_at'] = datetime.fromisoformat(secret['updated_at'])
+    
     return secrets
+
+@api_router.get("/v1/apps/{app_id}/secrets/{secret_key}/history")
+async def get_secret_history(app_id: str, secret_key: str):
+    """Get audit history for a secret"""
+    history = await db.secrets_audit.find(
+        {"app_id": app_id, "secret_name": secret_key},
+        {"_id": 0}
+    ).sort("timestamp", -1).to_list(50)
+    
+    for entry in history:
+        if isinstance(entry.get('timestamp'), str):
+            entry['timestamp'] = datetime.fromisoformat(entry['timestamp'])
+    
+    return history
 
 @api_router.delete("/v1/apps/{app_id}/secrets/{secret_id}")
 async def delete_secret(app_id: str, secret_id: str):
