@@ -430,6 +430,27 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Graceful shutdown flag
+shutdown_flag = False
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Console API starting up")
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    global shutdown_flag
+    shutdown_flag = True
+    logger.info("Initiating graceful shutdown...")
+    
+    # Close all active agent connections
+    for agent_id, ws in list(active_agents.items()):
+        try:
+            await ws.close(code=1001, reason="Server shutting down")
+            logger.info(f"Closed connection to agent {agent_id}")
+        except Exception as e:
+            logger.error(f"Error closing agent connection: {e}")
+    
+    # Close MongoDB client
     client.close()
+    logger.info("Console API shutdown complete")
