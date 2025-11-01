@@ -258,6 +258,8 @@ class Agent:
             logger.error(error_msg)
             await self.send_log(app_id, deployment_id, error_msg)
             await self.send_status_update(app_id, deployment_id, "failed")
+        finally:
+            self.current_build = None
     
     async def stream_container_logs(self, app_id: str, deployment_id: str, container):
         """Stream container logs to Console"""
