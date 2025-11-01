@@ -148,6 +148,12 @@ class Agent:
         repo_url = data.get('repo_url')
         app_name = data.get('app_name', 'app')
         
+        # Check for graceful shutdown
+        if shutdown_flag:
+            await self.send_log(app_id, deployment_id, "Agent shutting down - deployment cancelled")
+            return
+        
+        self.current_build = deployment_id
         logger.info(f"Deploying app {app_id} from {repo_url}")
         
         try:
