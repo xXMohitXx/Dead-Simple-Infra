@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: dsi-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - dsi-network
+
+  console:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dsi-console
+    ports:
+      - "8001:8001"
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=dead_simple_infra
+      - CORS_ORIGINS=*
+      - MASTER_ENCRYPTION_KEY=dev-master-key-32-bytes-long!!
+    depends_on:
+      - mongodb
+    volumes:
+      - ./backend:/app
+    networks:
+      - dsi-network
+    command: uvicorn server:app --host 0.0.0.0 --port 8001 --reload
+
+  agent:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.agent
+    container_name: dsi-agent
+    environment:
+      - CONSOLE_WS_URL=ws://console:8001/api/v1/agents/stream
+      - AGENT_NAME=docker-agent
+    depends_on:
+      - console
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - agent_workspace:/tmp/dsi-agent-workspace
+    networks:
+      - dsi-network
+    command: python agent.py
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: dsi-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_BACKEND_URL=http://localhost:8001
+    depends_on:
+      - console
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    networks:
+      - dsi-network
+
+volumes:
+  mongodb_data:
+  agent_workspace:
+
+networks:
+  dsi-network:
+    driver: bridge
