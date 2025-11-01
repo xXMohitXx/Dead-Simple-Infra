@@ -108,6 +108,8 @@ class Agent:
                     asyncio.create_task(self.handle_stop(data))
                 elif msg_type == 'restart':
                     asyncio.create_task(self.handle_restart(data))
+                elif msg_type == 'secret_rotate':
+                    asyncio.create_task(self.handle_secret_rotation(data))
         
         except websockets.exceptions.ConnectionClosed:
             logger.warning("WebSocket connection closed")
