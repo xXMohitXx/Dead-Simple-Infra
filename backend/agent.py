@@ -49,32 +49,49 @@ class Agent:
     def __init__(self):
         self.websocket = None
         self.running = True
+        self.current_build = None  # Track current build for graceful shutdown
+    
+    async def connect_with_retry(self):
+        """Connect to Console with exponential backoff retry"""
+        attempt = 0
+        backoff = INITIAL_BACKOFF
+        
+        while attempt < MAX_RETRIES and not shutdown_flag:
+            try:
+                logger.info(f"Attempting to connect to Console (attempt {attempt + 1}/{MAX_RETRIES})")
+                await self.connect()
+                return  # Success
+            except Exception as e:
+                attempt += 1
+                if attempt >= MAX_RETRIES:
+                    logger.error(f"Failed to connect after {MAX_RETRIES} attempts. Last error: {e}")
+                    logger.info("Agent will wait and retry later...")
+                    await asyncio.sleep(60)  # Wait 1 minute before trying again
+                    attempt = 0  # Reset counter
+                else:
+                    logger.warning(f"Connection attempt {attempt} failed: {e}. Retrying in {backoff}s...")
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, MAX_BACKOFF)  # Exponential backoff with cap
     
     async def connect(self):
         """Connect to Console WebSocket"""
         logger.info(f"Connecting to Console at {CONSOLE_WS_URL}")
         
-        while self.running:
-            try:
-                async with websockets.connect(CONSOLE_WS_URL) as websocket:
-                    self.websocket = websocket
-                    logger.info("Connected to Console")
-                    
-                    # Send registration
-                    await self.send_message({
-                        "type": "register",
-                        "agent_name": AGENT_NAME
-                    })
-                    
-                    # Start metrics loop
-                    asyncio.create_task(self.metrics_loop())
-                    
-                    # Listen for commands
-                    await self.listen_for_commands()
+        async with websockets.connect(CONSOLE_WS_URL) as websocket:
+            self.websocket = websocket
+            logger.info("Connected to Console")
             
-            except Exception as e:
-                logger.error(f"Connection failed: {e}")
-                await asyncio.sleep(5)  # Retry after 5 seconds
+            # Send registration
+            await self.send_message({
+                "type": "register",
+                "agent_name": AGENT_NAME
+            })
+            
+            # Start metrics loop
+            asyncio.create_task(self.metrics_loop())
+            
+            # Listen for commands
+            await self.listen_for_commands()
     
     async def listen_for_commands(self):
         """Listen for deployment commands from Console"""
