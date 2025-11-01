@@ -70,10 +70,16 @@ class Secret(BaseModel):
     app_id: str
     key: str
     encrypted_value: str
+    version: int = 1
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class SecretCreate(BaseModel):
     app_id: str
+    key: str
+    value: str
+
+class SecretRotate(BaseModel):
     key: str
     value: str
 
